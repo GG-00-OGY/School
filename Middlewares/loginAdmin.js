@@ -1,0 +1,52 @@
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
+const connectToDatabase = require('./../Config/db');
+
+const JWT_SECRET = process.env.JWT_SECRET;
+
+
+async function loginAdmin(req, res) {
+    try {
+        const db = await connectToDatabase();
+        const { national_code, password } = req.body;
+
+        if (!national_code || !password) {
+            return res.status(400).json({ message: 'نام کاربری و رمز عبور الزامی است' });
+        }
+
+        const [rows] = await db.query('SELECT national_code, password, role FROM admins WHERE national_code = ?', [national_code]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({ message: 'ادمین یافت نشد' });
+        }
+
+        const user = rows[0];
+
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(401).json({ message: 'نام کاربری یا رمز عبور اشتباه است' });
+        }
+
+        const token = jwt.sign(
+            { national_code: user.national_code, role: user.role || 'admin' },
+            JWT_SECRET,
+            { expiresIn: '1h' }
+        );
+
+        res.clearCookie('token');
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 60 * 60 * 1000
+        });
+
+        res.json({ message: 'ورود ادمین موفقیت‌آمیز بود', role: user.role || 'admin' });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'خطای سرور' });
+    }
+}
+
+module.exports = loginAdmin;
